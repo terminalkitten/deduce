@@ -49,7 +49,12 @@ def annotate_text(
     # Replace < and > symbols
     text = text.replace("<", "(")
     text = text.replace(">", ")")
-
+	
+    # Urls
+    if urls:
+        text = annotate_email(text)
+        text = annotate_url(text)
+		
     # Deidentify names
     if names:
 
@@ -58,7 +63,11 @@ def annotate_text(
                               patient_surname, patient_given_name)
 
 		# Then, based on the context
-        text = annotate_names_context(text)
+        try:
+            text = annotate_names_context(text)
+        except RecursionError:
+            text += ' (RecursionError)'
+            pass
 
 		# Flatten possible nested tags
         if flatten:
@@ -90,11 +99,6 @@ def annotate_text(
 	# Ages
     if ages:
         text = annotate_age(text)
-
-    # Urls
-    if urls:
-        text = annotate_email(text)
-        text = annotate_url(text)
 
     # Merge adjacent tags
     while True:

@@ -33,39 +33,7 @@ def annotate_names(text, patient_first_names, patient_initial, patient_surname, 
         # The context of this token
         (previous_token, previous_token_index,
          next_token, next_token_index) = context(tokens, token_index)
-
-        ### Prefix based detection
-        # Check if the token is a prefix, and the next token starts with a capital
-        prefix_condition = (token.lower() in PREFIXES and
-                            next_token != "" and
-                            next_token[0].isupper() and
-                            next_token.lower() not in WHITELIST
-                           )
-
-        # If the condition is met, tag the tokens and continue to the next position
-        if prefix_condition:
-            tokens_deid.append(
-                "<PREFIXNAAM {}>".format(join_tokens(tokens[token_index:next_token_index+1]))
-                )
-            token_index = next_token_index
-            continue
-
-        ### Interfix based detection
-        # Check if the token is an interfix, and the next token is in the list of interfix surnames
-        interfix_condition = (token.lower() in INTERFIXES and
-                              next_token != "" and
-                              next_token in INTERFIX_SURNAMES and
-                              next_token.lower() not in WHITELIST
-                             )
-
-        # If condition is met, tag the tokens and continue to the new position
-        if interfix_condition:
-            tokens_deid.append(
-                "<INTERFIXNAAM {}>".format(join_tokens(tokens[token_index:next_token_index+1]))
-                )
-            token_index = next_token_index
-            continue
-
+        
         ### First name
         # Check if there is any information in the first_names variable
         if len(patient_first_names) > 1:
@@ -76,26 +44,6 @@ def annotate_names(text, patient_first_names, patient_initial, patient_surname, 
 
             # Voornamen
             for patient_first_name in str(patient_first_names).split(" "):
-
-                # Check if the initials match
-                if token == patient_first_name[0]:
-
-                    # If followed by a period, also annotate the period
-                    if next_token != "" and tokens[token_index+1][0] == ".":
-                        tokens_deid.append(
-                            "<INITIAALPAT {}> ".format(
-                                join_tokens(tokens[token_index:token_index+2])
-                                )
-                            )
-                        token_index += 1
-
-                    # Else, annotate the token itself
-                    else:
-                        tokens_deid.append("<INITIAALPAT {}>".format(token))
-
-                    # Break the first names loop
-                    found = True
-                    break
 
                 # Check that either an exact match exists, or a fuzzy match
                 # if the token has more than 3 characters
@@ -116,13 +64,13 @@ def annotate_names(text, patient_first_names, patient_initial, patient_surname, 
             # If a match was found, continue
             if found:
                 continue
-
-        ### Initial
+				
+		### Initial
         # If the initial is not empty, and the token matches the initial, tag it as an initial
         if len(patient_initial) > 0 and token == patient_initial:
             tokens_deid.append("<INITIALENPAT {}>".format(token))
             continue
-
+			
         ### Surname
         if len(patient_surname) > 1:
 
@@ -133,35 +81,69 @@ def annotate_names(text, patient_first_names, patient_initial, patient_surname, 
             iter = 0
             match = False
 
-            # See if there is a fuzzy match, and if there are enough tokens left
-            # to match the rest of the pattern
-            if(edit_distance(token, surname_pattern[0], transpositions=True) <= 1 and
-               (token_index + len(surname_pattern)) < len(tokens)
-              ):
+            #RvE: bij lange patientnamen: fuzzy match; anders exact match 
+            if len(patient_surname) > 6:
+            
+                # See if there is a /fuzzy/ match, and if there are enough tokens left
+                # to match the rest of the pattern
+                if(edit_distance(token, surname_pattern[0], transpositions=True) <= 1 and
+                   (token_index + len(surname_pattern)) < len(tokens)
+                  ):
 
-                # Found a match
-                match = True
+                    # Found a match
+                    match = True
 
-                # Iterate over rest of pattern to see if every element matches (fuzzily)
-                while iter < len(surname_pattern):
+                    # Iterate over rest of pattern to see if every element matches (/fuzzily/)
+                    while iter < len(surname_pattern):
 
-                    # If the distance is too big, disgregard the match
-                    if edit_distance(tokens[token_index + iter],
-                                     surname_pattern[iter],
-                                     transpositions=True) > 1:
+                        # If the distance is too big, disgregard the match
+                        if edit_distance(tokens[token_index + iter],
+                                         surname_pattern[iter],
+                                         transpositions=True) > 1:
 
-                        match = False
-                        break
+                            match = False
+                            break
 
-                    iter += 1
+                        iter += 1
+            else:
+                
+                # See if there is an /exact/ match, and if there are enough tokens left
+                # to match the rest of the pattern
+                if(edit_distance(token, surname_pattern[0], transpositions=True) <= 0 and
+                   (token_index + len(surname_pattern)) < len(tokens)
+                  ):
+
+                    # Found a match
+                    match = True
+
+                    # Iterate over rest of pattern to see if every element matches (exactly)
+                    while iter < len(surname_pattern):
+
+                        # If the distance is too big, disregard the match
+                        if edit_distance(tokens[token_index + iter],
+                                         surname_pattern[iter],
+                                         transpositions=True) > 0:
+
+                            match = False
+                            break
+
+                        iter += 1                
 
             # If a match was found, tag the appropriate tokens, and continue
             if match:
-                tokens_deid.append(
-                    "<ACHTERNAAMPAT {}>".format(
-                        join_tokens(tokens[token_index:token_index+len(surname_pattern)])
-                        )
-                    )
+                if previous_token != "" and previous_token.lower() in INTERFIXES:
+                    tokens_deid = tokens_deid[:previous_token_index-1]
+                    tokens_deid.append(
+                        "<ACHTERNAAMPAT {}>".format(
+                            join_tokens(tokens[previous_token_index:token_index+len(surname_pattern)])
+                            )
+                         )
+                else:
+                    tokens_deid.append(
+                        "<ACHTERNAAMPAT {}>".format(
+                            join_tokens(tokens[token_index:token_index+len(surname_pattern)])
+                            )
+                         )
                 token_index = token_index+len(surname_pattern)-1
                 continue
 
@@ -182,7 +164,39 @@ def annotate_names(text, patient_first_names, patient_initial, patient_surname, 
         if given_name_condition:
             tokens_deid.append("<ROEPNAAMPAT {}>".format(token))
             continue
+		
+		### Prefix based detection
+        # Check if the token is a prefix, and the next token starts with a capital
+        prefix_condition = (token.lower() in PREFIXES and
+                            next_token != "" and
+                            next_token[0].isupper() and
+                            next_token.lower() not in WHITELIST
+                           )
+ 
+        # If the condition is met, tag the tokens and continue to the next position
+        if prefix_condition:
+            tokens_deid.append(
+                "<PREFIXNAAM {}>".format(join_tokens(tokens[token_index:next_token_index+1]))
+                )
+            token_index = next_token_index
+            continue
 
+        ### Interfix based detection
+        # Check if the previous token is an interfix, and the token is in the list of interfix surnames
+        interfix_condition = (previous_token != "" and
+                              previous_token.lower() in INTERFIXES and
+                              token in INTERFIX_SURNAMES and
+                              token.lower() not in WHITELIST
+                             )
+
+        # If condition is met, tag the tokens and continue to the new position
+        if interfix_condition:
+            tokens_deid = tokens_deid[:previous_token_index-1]
+            tokens_deid.append(
+                "<INTERFIXNAAM {}>".format(join_tokens(tokens[previous_token_index:token_index+1]))
+                )
+            continue
+      			
         ### Unknown first and last names
         # For both first and last names, check if the token
         # is on the lookup list and not on the whitelist
@@ -215,7 +229,7 @@ def annotate_names_context(text):
     while token_index < len(tokens)-1:
 
         # Current token position
-        token_index = token_index+1
+        token_index = token_index +1
 
         # Current token
         token = tokens[token_index]
@@ -229,33 +243,43 @@ def annotate_names_context(text):
 
         ### Initial or unknown capitalized word, detected by a name or surname that is behind it
                             # If the token is an initial, or starts with a capital
-        initial_condition = (is_initial(token) or
+        initial_condition = (is_initial(token, tokens, token_index) and "INITIAAL" in next_token) or (
+                             (is_initial(token, tokens, token_index) or
                              (token != "" and
                               token[0].isupper() and
-                              token.lower() not in WHITELIST
-                             )
-                            ) and (
-                                # And the token is followed by either a
-                                # found surname, interfix or initial
-                                "ACHTERNAAM" in next_token or
-                                "INTERFIX" in next_token or
-                                "INITIAAL" in next_token
-                            )
+                              token.lower() not in WHITELIST))
+							  and 
+							 (# And the token is followed by either a
+                              # found surname or interfix
+                              "INITIAAL" not in next_token and
+                              "ACHTERNAAM" in next_token or
+                              "INTERFIX" in next_token))
 
         # If match, tag the token and continue
         if initial_condition:
-            tokens_deid.append(
-                "<INITIAAL {}>".format(join_tokens(tokens[token_index:next_token_index+1]))
-                )
+            if next_token != "" and tokens[token_index+1][0] == ".":
+                tokens_deid.append(
+                    "<INITIAAL {}>".format(join_tokens(tokens[token_index:token_index+2]))
+                    )
+                tokens_deid.append(
+                    next_token
+                    )
+            else:
+                tokens_deid.append(
+                    "<INITIAAL {}>".format(token)
+                    )
+                tokens_deid.append(
+                    next_token
+                    )
             token_index = next_token_index
             continue
-
+                    			
         ### Interfix preceded by a name, and followed by a capitalized token
 
                               # If the token is an interfix
         interfix_condition = (token in INTERFIXES and
                               # And the token is preceded by an initial, found initial or found name
-                              (is_initial(previous_token) or
+                              (is_initial(previous_token, tokens, token_index) or
                                "INITIAAL" in previous_token or
                                "NAAM" in previous_token
                               ) and
@@ -273,23 +297,25 @@ def annotate_names_context(text):
             tokens_deid = tokens_deid[:previous_token_index-1]
             tokens_deid.append(
                 "<INTERFIXACHTERNAAM {}>".format(
-                    join_tokens(tokens[previous_token_index : next_token_index+1])
+                    join_tokens(tokens[previous_token_index:next_token_index+1])
                     )
                 )
             token_index = next_token_index
             continue
 
-        ### Initial or name, followed by a capitalized word
-                                 # If the token is an initial, or found name or prefix
-        initial_name_condition = ((is_initial(token) or
-                                   "VOORNAAM" in token or
+        ### Initial or first name, followed by a capitalized word.
+        ###But double last names are now not annotated. 
+        ###And words after a period after a first name are not annotated.
+                                 # If the token is an initial, or found name or prefix         
+        initial_name_condition = (("ACHTERNAAM" not in token and
+								   is_initial(token, tokens, token_index) or
+                                   "VOORNAAM" in token and tokens[token_index+1][0] != "." or
                                    "ROEPNAAM" in token or
-                                   "PREFIX" in token
+                                   "PREFIX" in token) and
                                    # And the next token is uppercase and has at least 3 characters
-                                  ) and
-                                  len(next_token) > 3 and
-                                  next_token[0].isupper() and
-                                  next_token.lower() not in WHITELIST
+                                   len(next_token) > 3 and
+                                   next_token[0].isupper() and
+                                   next_token.lower() not in WHITELIST
                                  )
 
         # If a match is found, tag and continue
@@ -344,6 +370,7 @@ def annotate_residence(text):
 
     # Tokenize text
     tokens = tokenize_split(text)
+    tokens_lower = [x.lower() for x in tokens]
     tokens_deid = []
     token_index = -1
 
@@ -355,7 +382,7 @@ def annotate_residence(text):
         token = tokens[token_index]
 
         # Find all tokens that are prefixes of the remainder of the text
-        prefix_matches = RESIDENCES_TRIE.find_all_prefixes(tokens[token_index:])
+        prefix_matches = RESIDENCES_TRIE.find_all_prefixes(tokens_lower[token_index:])
 
         # If none, just append the current token and move to the next
         if len(prefix_matches) == 0:
@@ -450,29 +477,37 @@ def annotate_phonenumber(text):
 
 def annotate_patientnumber(text):
     """ Annotate patient numbers """
-    text = re.sub("(\d{7})(?![^<]*>)",
+    text = re.sub("(\d{8})(?![^<]*>)",
                   "<PATIENTNUMMER \\1>",
                   text)
+
+    text = re.sub("(3\d{6})(?![^<]*>)",  
+                  "<PATIENTNUMMER \\1>",
+                  text)
+       
     return text
 
 def annotate_postalcode(text):
     """ Annotate postal codes """
-    text = re.sub("(((\d{4} [A-Z]{2})|(\d{4}[a-zA-Z]{2})))(?P<n>\W)(?![^<]*>)",
-                  "<LOCATIE \\1> ",
-                  text)
+    if 'cc' in text:
+        return text
+    else:
+        text = re.sub("(((\d{4} [A-Z]{2})|(\d{4}[a-zA-Z]{2})))(?P<n>\W)(?![^<]*>)",
+                      "<LOCATIE \\1> ",
+                      text)
 
-    text = re.sub("<LOCATIE\s(.+mg)>",
-                  "\\1",
-                  text)
+        text = re.sub("<LOCATIE\s(.+mg)>",
+                      "\\1",
+                      text)
 
-    text = re.sub("([Pp]ostbus\s\d{5})",
-                  "<LOCATIE \\1>",
-                  text)
-    return text
+        text = re.sub("([Pp]ostbus\s\d{1,5})",
+                      "<LOCATIE \\1>",
+                      text)
+        return text
 
 def annotate_address(text):
     """ Annotate addresses """
-    text = re.sub(r"([A-Z]\w+(straat|laan|hof|plein|plantsoen|gracht|kade|weg|steeg|steeg|pad|dijk|baan|dam|dreef|kade|markt|park|plantsoen|singel|bolwerk)[\s\n\r]((\d+){1,6}(\w{0,2}){0,1}|(\d+){0,6}))",
+    text = re.sub(r"([A-Z]\w+(straat|laan|hof|plein|plantsoen|gracht|kade|weg|steeg|steeg|pad|dijk|baan|dam|dreef|kade|markt|park|plantsoen|singel|bolwerk)[\s\n\r]*((\d+){1,6}(\w{0,2}){0,1}|(\d+){0,6}))",
                   "<LOCATIE \\1>",
                   text)
 

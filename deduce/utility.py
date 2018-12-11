@@ -103,16 +103,17 @@ def context(tokens, i):
     # Return the appropriate information in a 4-tuple
     return(previous_token, previous_token_index, next_token, next_token_index)
 
-def is_initial(token):
+def is_initial(token, tokens, token_index):
     """
     Check if a token is an initial
     This is defined as:
         - Length 1 and capital
+        - Next_token is '.', or ' '
         - Already annotated initial
     """
-    return ((len(token) == 1 and token[0].isupper()) or
-            "INITI" in token)
-
+    return ((len(token) == 1 and token[0].isupper() and (tokens[token_index+1] == '.' or tokens[token_index+1] == ' ')) or
+            "INITI" in token)            
+            
 def flatten_text(text):
     """
     Flattens all tags in a piece of text; e.g. tags like <INITIAL A <NAME Surname>>
@@ -138,18 +139,18 @@ def flatten_text(text):
             tagname = "PATIENT"
         else:
             tagname = "PERSOON"
-
+        
         # Replace the found tag with the new, flattened tag
         text = text.replace(tag, "<{} {}>".format(tagname, value.strip()))
 
     # Make sure adjacent tags are joined together (like <INITIAL A><PATIENT Surname>),
     # optionally with a whitespace, period, hyphen or comma between them.
     # This works because all adjacent tags concern names
-    # (remember that the function flatten_text() can only be used for names)!
-    text = re.sub("<([A-Z]+)\s([\w\.\s,]+)>([\.\s\-,]+)[\.\s]*<([A-Z]+)\s([\w\.\s,]+)>",
-                  "<\\1\\4 \\2\\3\\5>",
+    # (remember that the function flatten_text() can only be used for names)! 
+    text = re.sub("<([A-Z]+)\s([\w\.\s,]+)>([\.\s\-,]*<([A-Z]+)\s([\w\.\s,]+)>){%s}"%((len(to_flatten))-1),
+                  "<\\1\\4 \\2\\5>",
                   text)
-
+				  
     # Find all names of tags, to replace them with either "PATIENT" or "PERSOON"
     tagnames = re.findall("<([A-Z]+)", text)
 
@@ -318,6 +319,6 @@ def read_list(list_name, encoding='utf-8', lower=False,
         data = [line for line in data if len(line) >= min_len]
 
     if unique:
-        data_nodoubles = list(set(data))
+        data_nodoubles = set(data)
 
     return data_nodoubles
